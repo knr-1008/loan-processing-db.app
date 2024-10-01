@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd">
+	<file:config name="File_Config@approve" doc:name="File Config" doc:id="4346195c-386e-477e-b740-955487080d49" >
+		<file:connection workingDir="C:\mule\loan process\approve" />
+	</file:config>
+	<file:config name="File_Config@rejected" doc:name="File Config" doc:id="cafa80f6-3281-4f1f-84a6-8a485b0ac6e5" >
+		<file:connection workingDir="C:\mule\loan process\rejected" />
+	</file:config>
+	<http:listener-config name="HTTP_Listener_config1" doc:name="HTTP Listener config" doc:id="b5af6671-e8ab-404d-bb54-6fe1fae85889" >
+		<http:listener-connection host="0.0.0.0" port="8081" />
+	</http:listener-config>
+	<file:config name="File_Config@review" doc:name="File Config" doc:id="02715213-726b-45c5-9bcf-8c70e7293c15" >
+		<file:connection workingDir="C:\mule\loan process\review" />
+	</file:config>
+	<file:config name="File_Config@reviewed" doc:name="File Config" doc:id="c48c6173-1318-46bd-9725-006339cd1729" >
+		<file:connection workingDir="C:\mule\loan process\reviewed" />
+	</file:config>
+	<flow name="loanprocessFlow1" doc:id="79dd9eba-9c85-46c3-b42b-62c38a60865d" >
+		<file:listener doc:name="On New or Updated File" doc:id="47936646-ac33-4e95-9e9b-0ea378acd1db" config-ref="File_Config@reviewed" outputMimeType="application/json">
+			<scheduling-strategy >
+				<fixed-frequency />
+			</scheduling-strategy>
+		</file:listener>
+		<choice doc:name="Choice" doc:id="4c8c3c9a-932e-403c-95de-e357770a3eeb" >
+			<when expression='#[payload.loanstatus == "approve"]'>
+				<file:write doc:name="Write" doc:id="76e668e8-7420-4b03-b525-6c7071c516cc" config-ref="File_Config@approve" path="#[payload.customername ++ payload.loanstatus]"/>
+			</when>
+			<otherwise >
+				<file:write doc:name="Write" doc:id="19417717-0795-46b6-abea-d320f40ea7ac" config-ref="File_Config@rejected" path="#[payload.customername ++ payload.loanstatus]"/>
+			</otherwise>
+		</choice>
+	</flow>
+	<flow name="loanprocessFlow" doc:id="54a4e4f6-deb6-41e6-8126-dd77166acb90" >
+		<http:listener doc:name="Listener" doc:id="2587d28b-f944-45c5-972c-223decca0b5a" path="/loanprocess" config-ref="HTTP_Listener_config1"/>
+		<logger level="INFO" doc:name="Logger" doc:id="f4df4163-1631-4f5d-a21e-d5debafb87a0" message="info"/>
+		<set-variable value='#[readUrl("classpath://pandata.csv","application/csv")]' doc:name="pandata" doc:id="a70c5c3b-c1f0-4857-b30d-e7f1b1aabe9c" variableName="cibilscore"/>
+		<ee:transform doc:name="Transform Message" doc:id="7159c759-46d1-42d2-9165-1d774d0e9cb8" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="cibilscore" ><![CDATA[%dw 2.0
+output application/json
+---
+vars.cibilscore]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<ee:transform doc:name="Transform Message" doc:id="3eda7ffe-b801-4c71-baea-f4ec1fcf4ce5" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+var customercibil = (pandata filter ((item, index) -> item.pan == payload.pannumb))[0].cibil
+---
+{
+    "customername" : payload.firstname ++ payload.lastname,
+    "pannumber" : payload.pannumb,
+    "amount": payload.amount,
+ "loanstatus" : if(payload.amount < 2000000 and customercibil > 750) "approve" else if(payload.amount > 2000000 and customercibil < 750) "revview"  else if(payload.amount < 1000000 and customercibil > 650 and customercibil < 750) "additionalreview" else "rejected"
+ }]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger doc:name="Logger" doc:id="05ff967e-dc97-4a1d-93a4-84f75282939c" />
+		<choice doc:name="Choice" doc:id="8c7cd409-8cb6-47c9-b5de-b76145f6fe7d" >
+			<when expression='#[payload.loanstatus == "approve"]'>
+				<file:write doc:name="Write" doc:id="5722826a-fcb8-441f-b9e9-36759fa2af54" config-ref="File_Config@approve" path='#[payload.customername ++ payload.loanstatus]'/>
+			</when>
+			<when expression='#[payload.loanstatus == "review"]'>
+				<file:write doc:name="Write" doc:id="b4637569-6f4d-4ab1-bd79-535250e93155" config-ref="File_Config@review" path="#[payload.customername ++ payload.loanstatus]"/>
+			</when>
+			<otherwise >
+				<file:write doc:name="Write" doc:id="11863cff-fbbd-4c6a-9973-7633b794b971" config-ref="File_Config@rejected" path='#[payload.customername ++ payload.loanstatus ++ ".json"]'/>
+			</otherwise>
+		</choice>
+	</flow>
+</mule>
